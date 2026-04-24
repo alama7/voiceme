@@ -408,6 +408,52 @@
     cursor: pointer; transition: all 0.15s;
   }
   .modal-btn:active { transform: scale(0.98); }
+
+  /* VOICE SELECTOR */
+  .voice-select-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 0 10px;
+  }
+  .voice-select {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 8px 12px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a8099' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 30px;
+  }
+  .voice-select:focus { border-color: var(--accent); }
+  .voice-preview-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--accent2);
+    font-size: 13px;
+    padding: 8px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .voice-preview-btn:active { transform: scale(0.96); border-color: var(--accent2); }
+  .voice-section-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 6px 0 2px;
+  }
 </style>
 </head>
 <body>
@@ -430,10 +476,17 @@
     <input type="range" class="slider" id="rateSlider" min="0.5" max="2" step="0.1" value="0.85">
     <span class="voice-label" id="rateVal">0.9×</span>
   </div>
-  <div class="voice-controls" style="border:none; padding:4px 0 8px;">
+  <div class="voice-controls" style="border:none; padding:4px 0 4px;">
     <span class="voice-label">Pitch</span>
     <input type="range" class="slider" id="pitchSlider" min="0.5" max="2" step="0.1" value="1">
     <span class="voice-label" id="pitchVal">1.0</span>
+  </div>
+  <div class="voice-section-label">Built-in Voice</div>
+  <div class="voice-select-row">
+    <select class="voice-select" id="voiceSelect" onchange="onVoiceSelected()">
+      <option value="">Loading voices…</option>
+    </select>
+    <button class="voice-preview-btn" onclick="previewVoice()">▶ Preview</button>
   </div>
 </div>
 
@@ -500,6 +553,7 @@ let activeCategory = 'Needs';
 let aiDebounce = null;
 let speaking = false;
 let useElevenLabs = true; // Toggle between cloned voice and built-in TTS
+let selectedVoiceName = ''; // Selected built-in voice name
 
 const PHRASES = {
   'Needs': [
@@ -566,6 +620,8 @@ function init() {
   btn.style.color = 'var(--green)';
   btn.style.borderColor = 'var(--green)';
   btn.style.background = 'rgba(78,203,141,0.1)';
+  // Populate built-in voice list
+  populateVoiceList();
 }
 
 // ---- CATEGORIES ----
@@ -733,6 +789,69 @@ async function speakOutput() {
   }
 }
 
+// ---- BUILT-IN VOICE SELECTOR ----
+function populateVoiceList() {
+  const voices = window.speechSynthesis.getVoices();
+  const select = document.getElementById('voiceSelect');
+  if (!voices.length) return;
+
+  // Group: English first, then others
+  const english = voices.filter(v => v.lang.startsWith('en'));
+  const others = voices.filter(v => !v.lang.startsWith('en'));
+
+  select.innerHTML = '';
+
+  if (english.length) {
+    const grp = document.createElement('optgroup');
+    grp.label = '🇬🇧 English Voices';
+    english.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.lang})${v.localService ? ' ●' : ''}`;
+      if (v.localService) opt.style.color = 'var(--green)'; // local = offline capable
+      grp.appendChild(opt);
+    });
+    select.appendChild(grp);
+  }
+
+  if (others.length) {
+    const grp = document.createElement('optgroup');
+    grp.label = '🌐 Other Languages';
+    others.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.lang})`;
+      grp.appendChild(opt);
+    });
+    select.appendChild(grp);
+  }
+
+  // Restore previously selected voice or pick best default
+  if (selectedVoiceName) {
+    select.value = selectedVoiceName;
+  } else {
+    const preferred = english.find(v => v.localService && v.name.toLowerCase().includes('samantha'))
+      || english.find(v => v.localService)
+      || english[0];
+    if (preferred) { select.value = preferred.name; selectedVoiceName = preferred.name; }
+  }
+}
+
+function onVoiceSelected() {
+  selectedVoiceName = document.getElementById('voiceSelect').value;
+}
+
+function previewVoice() {
+  const utt = new SpeechSynthesisUtterance('Hello, this is a preview of this voice.');
+  const voices = window.speechSynthesis.getVoices();
+  const voice = voices.find(v => v.name === selectedVoiceName);
+  if (voice) utt.voice = voice;
+  utt.rate = parseFloat(document.getElementById('rateSlider').value);
+  utt.pitch = parseFloat(document.getElementById('pitchSlider').value);
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utt);
+}
+
 // ---- BUILT-IN TTS ----
 function speakBuiltIn() {
   const btn = document.getElementById('speakBtn');
@@ -740,8 +859,10 @@ function speakBuiltIn() {
   utt.rate = parseFloat(document.getElementById('rateSlider').value);
   utt.pitch = parseFloat(document.getElementById('pitchSlider').value);
   const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find(v => v.lang.startsWith('en') && v.localService) || voices.find(v => v.lang.startsWith('en'));
-  if (preferred) utt.voice = preferred;
+  const voice = voices.find(v => v.name === selectedVoiceName)
+    || voices.find(v => v.lang.startsWith('en') && v.localService)
+    || voices.find(v => v.lang.startsWith('en'));
+  if (voice) utt.voice = voice;
   utt.onend = utt.onerror = () => {
     speaking = false;
     btn.classList.remove('speaking');
@@ -870,6 +991,9 @@ function setupSliders() {
   rate.oninput = () => document.getElementById('rateVal').textContent = parseFloat(rate.value).toFixed(1) + '×';
   pitch.oninput = () => document.getElementById('pitchVal').textContent = parseFloat(pitch.value).toFixed(1);
 }
+
+// Voices load asynchronously on some browsers — populate when ready
+window.speechSynthesis.onvoiceschanged = populateVoiceList;
 
 // ---- TOAST ----
 function showToast(msg) {
