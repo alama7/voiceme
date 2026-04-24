@@ -412,21 +412,14 @@
 </head>
 <body>
 
-<!-- API KEY MODAL -->
-<div class="modal-overlay" id="apiModal">
-  <div class="modal">
-    <h2>Welcome to VoiceMe</h2>
-    <p>This app uses AI to suggest completions as you type. Enter your Anthropic API key to enable AI suggestions. Your key is stored only in this session.</p>
-    <input type="password" id="apiKeyInput" placeholder="sk-ant-..." />
-    <button class="modal-btn" onclick="saveApiKey()">Get Started →</button>
-  </div>
-</div>
-
 <header>
   <div class="logo">Voice<span>Me</span></div>
   <div class="header-actions">
-    <button class="icon-btn" id="voiceToggle" onclick="toggleVoicePanel()">🔊 Voice</button>
-    <button class="icon-btn" onclick="document.getElementById('apiModal').classList.remove('hidden')">🔑 Key</button>
+    <button class="icon-btn active" id="voiceModeBtn" onclick="toggleVoiceMode()" style="min-width:120px;">
+      <span id="voiceModeIcon">🎙️</span>
+      <span id="voiceModeLabel">His Voice</span>
+    </button>
+    <button class="icon-btn" id="voiceToggle" onclick="toggleVoicePanel()">🔊 Settings</button>
   </div>
 </header>
 
@@ -501,12 +494,12 @@
 
 <script>
 // ---- STATE ----
-let apiKey = '';
 let currentOutput = '';
 let history = [];
 let activeCategory = 'Needs';
 let aiDebounce = null;
 let speaking = false;
+let useElevenLabs = true; // Toggle between cloned voice and built-in TTS
 
 const PHRASES = {
   'Needs': [
@@ -566,20 +559,13 @@ function init() {
   buildCategories();
   buildPhraseGrid(activeCategory);
   setupSliders();
-  // Show API key modal
-  // Optionally skip if key already in sessionStorage
-  const saved = sessionStorage.getItem('vme_key');
-  if (saved) { apiKey = saved; document.getElementById('apiModal').classList.add('hidden'); }
-}
-
-function saveApiKey() {
-  const val = document.getElementById('apiKeyInput').value.trim();
-  if (!val) { showToast('Please enter an API key'); return; }
-  apiKey = val;
-  sessionStorage.setItem('vme_key', val);
-  document.getElementById('apiModal').classList.add('hidden');
-  showToast('✦ AI suggestions enabled');
+  // Pre-load AI suggestions
   getAISuggestions('');
+  // Set initial voice mode button styling
+  const btn = document.getElementById('voiceModeBtn');
+  btn.style.color = 'var(--green)';
+  btn.style.borderColor = 'var(--green)';
+  btn.style.background = 'rgba(78,203,141,0.1)';
 }
 
 // ---- CATEGORIES ----
@@ -608,12 +594,13 @@ function buildPhraseGrid(cat) {
 }
 
 // ---- OUTPUT ----
-function setOutput(text) {
+function setOutput(text, autoSpeak = true) {
   currentOutput = text;
   const el = document.getElementById('outputDisplay');
   el.textContent = text;
   el.classList.remove('placeholder');
   getAISuggestions(text);
+  if (autoSpeak) speakOutput();
 }
 
 function clearOutput() {
@@ -629,19 +616,137 @@ function copyOutput() {
   showToast('Copied to clipboard');
 }
 
+// ---- VOICE MODE TOGGLE ----
+function toggleVoiceMode() {
+  useElevenLabs = !useElevenLabs;
+  const btn = document.getElementById('voiceModeBtn');
+  const icon = document.getElementById('voiceModeIcon');
+  const label = document.getElementById('voiceModeLabel');
+
+  if (useElevenLabs) {
+    icon.textContent = '🎙️';
+    label.textContent = 'His Voice';
+    btn.classList.add('active');
+    btn.style.color = 'var(--green)';
+    btn.style.borderColor = 'var(--green)';
+    btn.style.background = 'rgba(78,203,141,0.1)';
+    showToast('🎙️ Switched to cloned voice');
+  } else {
+    icon.textContent = '🔈';
+    label.textContent = 'Built-in Voice';
+    btn.classList.remove('active');
+    btn.style.color = 'var(--accent2)';
+    btn.style.borderColor = 'var(--accent2)';
+    btn.style.background = 'rgba(126,200,227,0.1)';
+    showToast('🔈 Switched to built-in voice');
+  }
+}
+
+// ---- ELEVENLABS CONFIG ----
+const EL_API_KEY = 'sk_3ea9022e4c49df5f4f92095e3bfd1bb307eafc674fc2cd77';
+const EL_VOICE_ID = 'IDAiJK3TLKrm8wq2SZb6';
+let currentAudio = null;
+
 // ---- SPEAK ----
-function speakOutput() {
+async function speakOutput() {
   if (!currentOutput) { showToast('Nothing to speak'); return; }
-  if (speaking) { window.speechSynthesis.cancel(); return; }
+
+  // Stop if already playing
+  if (speaking) {
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    window.speechSynthesis.cancel();
+    speaking = false;
+    const btn = document.getElementById('speakBtn');
+    btn.classList.remove('speaking');
+    btn.textContent = '▶';
+    return;
+  }
+
+  const btn = document.getElementById('speakBtn');
+  btn.classList.add('speaking');
+  btn.textContent = '■';
+  speaking = true;
+
+  // Branch: built-in TTS
+  if (!useElevenLabs) {
+    speakBuiltIn();
+    return;
+  }
+
+  showToast('Generating voice…');
+
+  const stability = 1 - (parseFloat(document.getElementById('pitchSlider').value) - 0.5) / 1.5;
+  const speed = parseFloat(document.getElementById('rateSlider').value);
+
+  try {
+    const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${EL_VOICE_ID}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': EL_API_KEY,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg'
+      },
+      body: JSON.stringify({
+        text: currentOutput,
+        model_id: 'eleven_turbo_v2',
+        voice_settings: {
+          stability: Math.max(0.3, Math.min(1.0, stability)),
+          similarity_boost: 0.85,
+          style: 0.2,
+          use_speaker_boost: true,
+          speed: Math.max(0.7, Math.min(1.2, speed))
+        }
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail?.message || 'ElevenLabs error');
+    }
+
+    const audioBlob = await res.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    currentAudio = new Audio(audioUrl);
+
+    currentAudio.onended = () => {
+      speaking = false;
+      btn.classList.remove('speaking');
+      btn.textContent = '▶';
+      URL.revokeObjectURL(audioUrl);
+    };
+    currentAudio.onerror = () => {
+      speaking = false;
+      btn.classList.remove('speaking');
+      btn.textContent = '▶';
+      showToast('Playback error');
+    };
+
+    await currentAudio.play();
+    addHistory(currentOutput);
+
+  } catch(e) {
+    speaking = false;
+    btn.classList.remove('speaking');
+    btn.textContent = '▶';
+    showToast('⚠️ ' + (e.message || 'Could not generate voice'));
+    console.error(e);
+  }
+}
+
+// ---- BUILT-IN TTS ----
+function speakBuiltIn() {
+  const btn = document.getElementById('speakBtn');
   const utt = new SpeechSynthesisUtterance(currentOutput);
   utt.rate = parseFloat(document.getElementById('rateSlider').value);
   utt.pitch = parseFloat(document.getElementById('pitchSlider').value);
   const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find(v => v.lang.startsWith('en') && !v.name.includes('Google') && v.localService);
+  const preferred = voices.find(v => v.lang.startsWith('en') && v.localService) || voices.find(v => v.lang.startsWith('en'));
   if (preferred) utt.voice = preferred;
-  const btn = document.getElementById('speakBtn');
-  utt.onstart = () => { speaking = true; btn.classList.add('speaking'); btn.textContent = '■'; };
-  utt.onend = utt.onerror = () => { speaking = false; btn.classList.remove('speaking'); btn.textContent = '▶'; };
+  utt.onend = utt.onerror = () => {
+    speaking = false;
+    btn.classList.remove('speaking');
+    btn.textContent = '▶';
+  };
   window.speechSynthesis.speak(utt);
   addHistory(currentOutput);
 }
@@ -656,7 +761,7 @@ function onTyping() {
 function sendToOutput() {
   const text = document.getElementById('typeArea').value.trim();
   if (!text) return;
-  setOutput(text);
+  setOutput(text, false);
   switchTab('phrases');
   setTimeout(() => speakOutput(), 200);
 }
@@ -667,7 +772,6 @@ function clearType() {
 
 // ---- AI SUGGESTIONS ----
 async function getAISuggestions(context) {
-  if (!apiKey) return;
   const spinner = document.getElementById('aiSpinner');
   spinner.classList.add('active');
 
@@ -678,20 +782,26 @@ async function getAISuggestions(context) {
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 300,
         messages: [{ role: 'user', content: prompt }]
       })
     });
+    if (!res.ok) throw new Error('AI unavailable');
     const data = await res.json();
     const raw = data.content?.[0]?.text || '[]';
     const clean = raw.replace(/```json|```/g, '').trim();
     const suggestions = JSON.parse(clean);
     renderSuggestions(suggestions);
   } catch(e) {
-    console.error(e);
+    // Fallback static suggestions
+    const fallback = context
+      ? ['I need a moment', 'Can you help me?', 'Please repeat that', 'I understand']
+      : ['I need some water', 'Please call the nurse', 'I am feeling okay', 'Thank you'];
+    renderSuggestions(fallback);
+    console.log('Using static suggestions');
   } finally {
     spinner.classList.remove('active');
   }
@@ -712,7 +822,6 @@ function renderSuggestions(arr) {
 function appendSuggestion(el) {
   const text = el.textContent;
   setOutput(text);
-  showToast('Tap ▶ to speak');
 }
 
 // ---- HISTORY ----
@@ -731,7 +840,7 @@ function renderHistory() {
     const item = document.createElement('div');
     item.className = 'history-item';
     item.innerHTML = `<div class="history-content"><div class="history-phrase">${h.text}</div><div class="history-time">${h.time}</div></div><span class="history-speak">▶</span>`;
-    item.onclick = () => { setOutput(h.text); speakOutput(); };
+    item.onclick = () => { setOutput(h.text, false); speakOutput(); };
     list.appendChild(item);
   });
 }
@@ -770,8 +879,7 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-// Load voices
-window.speechSynthesis.onvoiceschanged = () => {};
+// Initialize
 init();
 </script>
 </body>
