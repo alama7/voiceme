@@ -481,7 +481,36 @@
     <input type="range" class="slider" id="pitchSlider" min="0.5" max="2" step="0.1" value="1">
     <span class="voice-label" id="pitchVal">1.0</span>
   </div>
-  <div class="voice-section-label">Built-in Voice</div>
+  <div class="voice-section-label">🔵 Google WaveNet Voice</div>
+  <div class="voice-select-row">
+    <select class="voice-select" id="googleVoiceSelect" onchange="onGoogleVoiceSelected()">
+      <optgroup label="Neural2 (Best Quality)">
+        <option value="en-US-Neural2-D">Neural2-D — Male (US)</option>
+        <option value="en-US-Neural2-F">Neural2-F — Female (US)</option>
+        <option value="en-US-Neural2-A">Neural2-A — Female (US)</option>
+        <option value="en-US-Neural2-C">Neural2-C — Female (US)</option>
+        <option value="en-US-Neural2-E">Neural2-E — Female (US)</option>
+        <option value="en-US-Neural2-G">Neural2-G — Female (US)</option>
+        <option value="en-US-Neural2-H">Neural2-H — Female (US)</option>
+        <option value="en-US-Neural2-I">Neural2-I — Male (US)</option>
+        <option value="en-US-Neural2-J">Neural2-J — Male (US)</option>
+      </optgroup>
+      <optgroup label="WaveNet (Natural)">
+        <option value="en-US-Wavenet-D" selected>Wavenet-D — Male (US)</option>
+        <option value="en-US-Wavenet-A">Wavenet-A — Female (US)</option>
+        <option value="en-US-Wavenet-B">Wavenet-B — Male (US)</option>
+        <option value="en-US-Wavenet-C">Wavenet-C — Female (US)</option>
+        <option value="en-US-Wavenet-E">Wavenet-E — Female (US)</option>
+        <option value="en-US-Wavenet-F">Wavenet-F — Female (US)</option>
+        <option value="en-GB-Wavenet-B">Wavenet-B — Male (UK)</option>
+        <option value="en-GB-Wavenet-A">Wavenet-A — Female (UK)</option>
+        <option value="en-AU-Wavenet-B">Wavenet-B — Male (AU)</option>
+        <option value="en-AU-Wavenet-A">Wavenet-A — Female (AU)</option>
+      </optgroup>
+    </select>
+    <button class="voice-preview-btn" onclick="previewGoogleVoice()">▶ Preview</button>
+  </div>
+  <div class="voice-section-label" style="margin-top:4px;">🔈 Built-in Device Voice</div>
   <div class="voice-select-row">
     <select class="voice-select" id="voiceSelect" onchange="onVoiceSelected()">
       <option value="">Loading voices…</option>
@@ -552,8 +581,14 @@ let history = [];
 let activeCategory = 'Needs';
 let aiDebounce = null;
 let speaking = false;
-let useElevenLabs = true; // Toggle between cloned voice and built-in TTS
+let voiceMode = 'elevenlabs'; // 'elevenlabs' | 'google' | 'builtin'
 let selectedVoiceName = ''; // Selected built-in voice name
+
+// ---- GOOGLE TTS CONFIG ----
+const GOOGLE_TTS_KEY = 'AIzaSyAJVncLAuDwENEsMCa-oCrSpWVGGuq0cZI';
+// Google WaveNet voice — en-US-Wavenet-D is a natural male voice
+// Options: en-US-Wavenet-A (female), en-US-Wavenet-D (male), en-US-Neural2-D (male), en-US-Neural2-F (female)
+let googleVoiceName = 'en-US-Wavenet-D';
 
 const PHRASES = {
   'Needs': [
@@ -609,18 +644,54 @@ const PHRASES = {
 };
 
 // ---- INIT ----
+// ---- VOICE PREFERENCE PERSISTENCE ----
+function saveVoicePrefs() {
+  try {
+    localStorage.setItem('vm_voiceMode', voiceMode);
+    localStorage.setItem('vm_googleVoice', googleVoiceName);
+    localStorage.setItem('vm_builtinVoice', selectedVoiceName);
+    localStorage.setItem('vm_rate', document.getElementById('rateSlider').value);
+    localStorage.setItem('vm_pitch', document.getElementById('pitchSlider').value);
+  } catch(e) { console.log('Could not save prefs:', e); }
+}
+
+function loadVoicePrefs() {
+  try {
+    const savedMode   = localStorage.getItem('vm_voiceMode');
+    const savedGoogle = localStorage.getItem('vm_googleVoice');
+    const savedBuiltin = localStorage.getItem('vm_builtinVoice');
+    const savedRate   = localStorage.getItem('vm_rate');
+    const savedPitch  = localStorage.getItem('vm_pitch');
+
+    if (savedMode)   voiceMode = savedMode;
+    if (savedGoogle) {
+      googleVoiceName = savedGoogle;
+      const sel = document.getElementById('googleVoiceSelect');
+      if (sel) sel.value = savedGoogle;
+    }
+    if (savedBuiltin) selectedVoiceName = savedBuiltin;
+    if (savedRate) {
+      document.getElementById('rateSlider').value = savedRate;
+      document.getElementById('rateVal').textContent = parseFloat(savedRate).toFixed(1) + '×';
+    }
+    if (savedPitch) {
+      document.getElementById('pitchSlider').value = savedPitch;
+      document.getElementById('pitchVal').textContent = parseFloat(savedPitch).toFixed(1);
+    }
+  } catch(e) { console.log('Could not load prefs:', e); }
+}
+
 function init() {
   buildCategories();
   buildPhraseGrid(activeCategory);
   setupSliders();
+  // Restore saved voice preferences BEFORE updating UI
+  loadVoicePrefs();
   // Pre-load AI suggestions
   getAISuggestions('');
-  // Set initial voice mode button styling
-  const btn = document.getElementById('voiceModeBtn');
-  btn.style.color = 'var(--green)';
-  btn.style.borderColor = 'var(--green)';
-  btn.style.background = 'rgba(78,203,141,0.1)';
-  // Populate built-in voice list
+  // Set voice mode button to restored state
+  updateVoiceModeBtn();
+  // Populate built-in voice list (will restore selectedVoiceName)
   populateVoiceList();
 }
 
@@ -674,28 +745,30 @@ function copyOutput() {
 
 // ---- VOICE MODE TOGGLE ----
 function toggleVoiceMode() {
-  useElevenLabs = !useElevenLabs;
+  // Cycle: elevenlabs → google → builtin → elevenlabs
+  if (voiceMode === 'elevenlabs') voiceMode = 'google';
+  else if (voiceMode === 'google') voiceMode = 'builtin';
+  else voiceMode = 'elevenlabs';
+  saveVoicePrefs();
+  updateVoiceModeBtn();
+}
+
+function updateVoiceModeBtn() {
   const btn = document.getElementById('voiceModeBtn');
   const icon = document.getElementById('voiceModeIcon');
   const label = document.getElementById('voiceModeLabel');
-
-  if (useElevenLabs) {
-    icon.textContent = '🎙️';
-    label.textContent = 'His Voice';
-    btn.classList.add('active');
-    btn.style.color = 'var(--green)';
-    btn.style.borderColor = 'var(--green)';
-    btn.style.background = 'rgba(78,203,141,0.1)';
-    showToast('🎙️ Switched to cloned voice');
-  } else {
-    icon.textContent = '🔈';
-    label.textContent = 'Built-in Voice';
-    btn.classList.remove('active');
-    btn.style.color = 'var(--accent2)';
-    btn.style.borderColor = 'var(--accent2)';
-    btn.style.background = 'rgba(126,200,227,0.1)';
-    showToast('🔈 Switched to built-in voice');
-  }
+  const modes = {
+    elevenlabs: { icon: '🎙️', label: 'His Voice',    color: 'var(--green)',  bg: 'rgba(78,203,141,0.1)',   border: 'var(--green)',  toast: '🎙️ His cloned voice' },
+    google:     { icon: '🔵', label: 'Google Voice',  color: '#4285f4',       bg: 'rgba(66,133,244,0.1)',   border: '#4285f4',       toast: '🔵 Google WaveNet voice' },
+    builtin:    { icon: '🔈', label: 'Built-in',      color: 'var(--accent2)',bg: 'rgba(126,200,227,0.1)', border: 'var(--accent2)', toast: '🔈 Built-in device voice' },
+  };
+  const m = modes[voiceMode];
+  icon.textContent = m.icon;
+  label.textContent = m.label;
+  btn.style.color = m.color;
+  btn.style.borderColor = m.border;
+  btn.style.background = m.bg;
+  showToast(m.toast);
 }
 
 // ---- ELEVENLABS CONFIG ----
@@ -723,11 +796,9 @@ async function speakOutput() {
   btn.textContent = '■';
   speaking = true;
 
-  // Branch: built-in TTS
-  if (!useElevenLabs) {
-    speakBuiltIn();
-    return;
-  }
+  // Branch by voice mode
+  if (voiceMode === 'builtin') { speakBuiltIn(); return; }
+  if (voiceMode === 'google')  { speakGoogle();  return; }
 
   showToast('Generating voice…');
 
@@ -789,6 +860,22 @@ async function speakOutput() {
   }
 }
 
+// ---- GOOGLE VOICE SELECTOR ----
+function onGoogleVoiceSelected() {
+  googleVoiceName = document.getElementById('googleVoiceSelect').value;
+  saveVoicePrefs();
+}
+
+async function previewGoogleVoice() {
+  const prev = currentOutput;
+  currentOutput = 'Hello, this is a preview of the Google voice.';
+  const prevMode = voiceMode;
+  voiceMode = 'google';
+  await speakGoogle();
+  currentOutput = prev;
+  voiceMode = prevMode;
+}
+
 // ---- BUILT-IN VOICE SELECTOR ----
 function populateVoiceList() {
   const voices = window.speechSynthesis.getVoices();
@@ -839,6 +926,7 @@ function populateVoiceList() {
 
 function onVoiceSelected() {
   selectedVoiceName = document.getElementById('voiceSelect').value;
+  saveVoicePrefs();
 }
 
 function previewVoice() {
@@ -870,6 +958,70 @@ function speakBuiltIn() {
   };
   window.speechSynthesis.speak(utt);
   addHistory(currentOutput);
+}
+
+// ---- GOOGLE CLOUD TTS ----
+async function speakGoogle() {
+  const btn = document.getElementById('speakBtn');
+  showToast('Generating voice…');
+
+  const rate = parseFloat(document.getElementById('rateSlider').value);
+  const pitch = parseFloat(document.getElementById('pitchSlider').value) - 1.0; // Google pitch: -20 to 20 semitones
+
+  try {
+    const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text: currentOutput },
+        voice: {
+          languageCode: 'en-US',
+          name: googleVoiceName,
+          ssmlGender: googleVoiceName.includes('-A') || googleVoiceName.includes('-F') || googleVoiceName.includes('-C') || googleVoiceName.includes('-E') ? 'FEMALE' : 'MALE'
+        },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          speakingRate: Math.max(0.25, Math.min(4.0, rate)),
+          pitch: Math.max(-20, Math.min(20, pitch * 10)),
+          volumeGainDb: 2.0
+        }
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || 'Google TTS error');
+    }
+
+    const data = await res.json();
+    const audioData = data.audioContent;
+    const audioBlob = new Blob([Uint8Array.from(atob(audioData), c => c.charCodeAt(0))], { type: 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(audioBlob);
+    currentAudio = new Audio(audioUrl);
+
+    currentAudio.onended = () => {
+      speaking = false;
+      btn.classList.remove('speaking');
+      btn.textContent = '▶';
+      URL.revokeObjectURL(audioUrl);
+    };
+    currentAudio.onerror = () => {
+      speaking = false;
+      btn.classList.remove('speaking');
+      btn.textContent = '▶';
+      showToast('Playback error');
+    };
+
+    await currentAudio.play();
+    addHistory(currentOutput);
+
+  } catch(e) {
+    speaking = false;
+    btn.classList.remove('speaking');
+    btn.textContent = '▶';
+    showToast('⚠️ ' + (e.message || 'Google TTS failed'));
+    console.error(e);
+  }
 }
 
 // ---- TYPING ----
@@ -988,8 +1140,8 @@ function toggleVoicePanel() {
 function setupSliders() {
   const rate = document.getElementById('rateSlider');
   const pitch = document.getElementById('pitchSlider');
-  rate.oninput = () => document.getElementById('rateVal').textContent = parseFloat(rate.value).toFixed(1) + '×';
-  pitch.oninput = () => document.getElementById('pitchVal').textContent = parseFloat(pitch.value).toFixed(1);
+  rate.oninput = () => { document.getElementById('rateVal').textContent = parseFloat(rate.value).toFixed(1) + '×'; saveVoicePrefs(); };
+  pitch.oninput = () => { document.getElementById('pitchVal').textContent = parseFloat(pitch.value).toFixed(1); saveVoicePrefs(); };
 }
 
 // Voices load asynchronously on some browsers — populate when ready
