@@ -454,6 +454,85 @@
     letter-spacing: 0.5px;
     padding: 6px 0 2px;
   }
+
+  /* PHRASE EDITOR */
+  .edit-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 300;
+    display: flex; align-items: flex-end;
+    backdrop-filter: blur(4px);
+  }
+  .edit-overlay.hidden { display: none; }
+  .edit-sheet {
+    background: var(--surface);
+    border-radius: 24px 24px 0 0;
+    border: 1px solid var(--border);
+    width: 100%;
+    max-height: 88dvh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .edit-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .edit-header h3 { font-family: 'DM Serif Display', serif; font-size: 18px; color: var(--accent2); }
+  .edit-close {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--muted); padding: 6px 12px;
+    font-size: 13px; cursor: pointer; font-family: 'DM Sans', sans-serif;
+  }
+  .edit-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+  .edit-body::-webkit-scrollbar { width: 3px; }
+  .edit-body::-webkit-scrollbar-thumb { background: var(--surface2); }
+  .edit-section-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: -4px; }
+  .edit-phrase-row { display: flex; align-items: center; gap: 8px; }
+  .edit-icon-input {
+    width: 48px; flex-shrink: 0; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); font-size: 20px; padding: 8px;
+    text-align: center; outline: none; font-family: 'DM Sans', sans-serif;
+  }
+  .edit-text-input {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); font-size: 14px;
+    padding: 10px 12px; outline: none; font-family: 'DM Sans', sans-serif;
+  }
+  .edit-text-input:focus, .edit-icon-input:focus { border-color: var(--accent); }
+  .edit-del-btn {
+    background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted);
+    width: 36px; height: 36px; cursor: pointer; font-size: 15px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+  }
+  .edit-del-btn:active { color: var(--red); border-color: var(--red); background: rgba(240,112,112,0.08); }
+  .edit-add-btn {
+    background: rgba(91,143,249,0.08); border: 1px dashed rgba(91,143,249,0.35);
+    border-radius: var(--radius-sm); color: var(--accent); padding: 10px;
+    font-size: 14px; font-family: 'DM Sans', sans-serif; cursor: pointer; width: 100%; transition: all 0.15s;
+  }
+  .edit-add-btn:active { background: rgba(91,143,249,0.18); }
+  .edit-cat-block { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .edit-cat-header { display: flex; align-items: center; gap: 8px; }
+  .edit-cat-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text); font-size: 14px;
+    padding: 9px 12px; font-weight: 600; outline: none; font-family: 'DM Sans', sans-serif;
+  }
+  .edit-cat-input:focus { border-color: var(--accent2); }
+  .edit-save-btn {
+    margin: 8px 20px 24px; padding: 15px; border-radius: var(--radius-sm);
+    background: var(--green); border: none; color: white;
+    font-size: 16px; font-family: 'DM Sans', sans-serif; font-weight: 600;
+    cursor: pointer; flex-shrink: 0; box-shadow: 0 4px 16px rgba(78,203,141,0.3); transition: all 0.15s;
+  }
+  .edit-save-btn:active { transform: scale(0.98); }
+  .edit-new-cat-btn {
+    margin: 0 20px 8px; padding: 12px; border-radius: var(--radius-sm);
+    background: rgba(126,200,227,0.08); border: 1px dashed rgba(126,200,227,0.35);
+    color: var(--accent2); font-size: 14px; font-family: 'DM Sans', sans-serif;
+    cursor: pointer; flex-shrink: 0; transition: all 0.15s;
+  }
+  .edit-new-cat-btn:active { background: rgba(126,200,227,0.18); }
+  .edit-divider { height: 1px; background: var(--border); margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -546,6 +625,7 @@
     <button class="tab active" onclick="switchTab('phrases')">📋 Phrases</button>
     <button class="tab" onclick="switchTab('type')">⌨️ Type</button>
     <button class="tab" onclick="switchTab('history')">🕐 History</button>
+    <button class="tab" onclick="openPhraseEditor()" style="max-width:44px;" title="Edit Phrases">✏️</button>
   </div>
 
   <!-- PHRASE BOARD PANEL -->
@@ -573,6 +653,19 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- PHRASE EDITOR SHEET -->
+<div class="edit-overlay hidden" id="editOverlay">
+  <div class="edit-sheet">
+    <div class="edit-header">
+      <h3>✏️ Edit Phrases</h3>
+      <button class="edit-close" onclick="closePhraseEditor()">Done</button>
+    </div>
+    <div class="edit-body" id="editBody"></div>
+    <button class="edit-new-cat-btn" onclick="addNewCategory()">＋ Add New Category</button>
+    <button class="edit-save-btn" onclick="savePhrasEdits()">✅ Save All Changes</button>
+  </div>
+</div>
 
 <script>
 // ---- STATE ----
@@ -682,6 +775,8 @@ function loadVoicePrefs() {
 }
 
 function init() {
+  // Load any saved custom phrases first
+  loadCustomPhrases();
   buildCategories();
   buildPhraseGrid(activeCategory);
   setupSliders();
@@ -693,6 +788,181 @@ function init() {
   updateVoiceModeBtn();
   // Populate built-in voice list (will restore selectedVoiceName)
   populateVoiceList();
+}
+
+// ---- PHRASE EDITOR ────────────────────────────────────────────────────────
+function openPhraseEditor() {
+  renderEditSheet();
+  document.getElementById('editOverlay').classList.remove('hidden');
+}
+
+function closePhraseEditor() {
+  document.getElementById('editOverlay').classList.add('hidden');
+}
+
+function renderEditSheet() {
+  const body = document.getElementById('editBody');
+  body.innerHTML = '';
+
+  Object.keys(PHRASES).forEach((cat, catIdx) => {
+    const block = document.createElement('div');
+    block.className = 'edit-cat-block';
+    block.dataset.cat = cat;
+
+    // Category header row
+    const header = document.createElement('div');
+    header.className = 'edit-cat-header';
+
+    const catInput = document.createElement('input');
+    catInput.className = 'edit-cat-input';
+    catInput.value = cat;
+    catInput.placeholder = 'Category name';
+    catInput.dataset.origCat = cat;
+
+    const delCatBtn = document.createElement('button');
+    delCatBtn.className = 'edit-del-btn';
+    delCatBtn.title = 'Delete category';
+    delCatBtn.innerHTML = '🗑';
+    delCatBtn.onclick = () => {
+      if (Object.keys(PHRASES).length <= 1) { showToast('Must keep at least one category'); return; }
+      if (confirm(`Delete "${cat}" and all its phrases?`)) {
+        delete PHRASES[cat];
+        if (activeCategory === cat) activeCategory = Object.keys(PHRASES)[0];
+        renderEditSheet();
+      }
+    };
+
+    header.appendChild(catInput);
+    header.appendChild(delCatBtn);
+    block.appendChild(header);
+
+    // Divider
+    const div = document.createElement('div');
+    div.className = 'edit-divider';
+    block.appendChild(div);
+
+    // Phrase rows
+    const phrasesContainer = document.createElement('div');
+    phrasesContainer.style.display = 'flex';
+    phrasesContainer.style.flexDirection = 'column';
+    phrasesContainer.style.gap = '8px';
+    phrasesContainer.dataset.catRef = cat;
+
+    PHRASES[cat].forEach((phrase, pIdx) => {
+      phrasesContainer.appendChild(makePhraseRow(cat, pIdx, phrase.icon, phrase.text));
+    });
+    block.appendChild(phrasesContainer);
+
+    // Add phrase button
+    const addBtn = document.createElement('button');
+    addBtn.className = 'edit-add-btn';
+    addBtn.textContent = '+ Add phrase';
+    addBtn.onclick = () => {
+      PHRASES[cat].push({ icon: '💬', text: '' });
+      const newRow = makePhraseRow(cat, PHRASES[cat].length - 1, '💬', '');
+      phrasesContainer.appendChild(newRow);
+      newRow.querySelector('.edit-text-input').focus();
+    };
+    block.appendChild(addBtn);
+
+    body.appendChild(block);
+  });
+}
+
+function makePhraseRow(cat, idx, icon, text) {
+  const row = document.createElement('div');
+  row.className = 'edit-phrase-row';
+  row.dataset.cat = cat;
+  row.dataset.idx = idx;
+
+  const iconInput = document.createElement('input');
+  iconInput.className = 'edit-icon-input';
+  iconInput.value = icon;
+  iconInput.maxLength = 2;
+  iconInput.oninput = () => { PHRASES[cat][idx].icon = iconInput.value || '💬'; };
+
+  const textInput = document.createElement('input');
+  textInput.className = 'edit-text-input';
+  textInput.value = text;
+  textInput.placeholder = 'Phrase text…';
+  textInput.oninput = () => { PHRASES[cat][idx].text = textInput.value; };
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'edit-del-btn';
+  delBtn.innerHTML = '✕';
+  delBtn.onclick = () => {
+    PHRASES[cat].splice(idx, 1);
+    row.remove();
+    // Reindex remaining rows
+    const parent = document.querySelector(`[data-cat-ref="${cat}"]`);
+    if (parent) {
+      Array.from(parent.children).forEach((r, i) => r.dataset.idx = i);
+    }
+  };
+
+  row.appendChild(iconInput);
+  row.appendChild(textInput);
+  row.appendChild(delBtn);
+  return row;
+}
+
+function savePhrasEdits() {
+  // Read all category name changes
+  const blocks = document.querySelectorAll('.edit-cat-block');
+  const newPhrases = {};
+
+  blocks.forEach(block => {
+    const origCat = block.querySelector('.edit-cat-input').dataset.origCat;
+    const newCat  = block.querySelector('.edit-cat-input').value.trim() || origCat;
+    // Collect phrase rows
+    const rows = block.querySelectorAll('.edit-phrase-row');
+    const phrases = [];
+    rows.forEach(row => {
+      const icon = row.querySelector('.edit-icon-input').value || '💬';
+      const text = row.querySelector('.edit-text-input').value.trim();
+      if (text) phrases.push({ icon, text });
+    });
+    if (phrases.length > 0) newPhrases[newCat] = phrases;
+  });
+
+  // Apply
+  Object.keys(PHRASES).forEach(k => delete PHRASES[k]);
+  Object.assign(PHRASES, newPhrases);
+
+  // Fix activeCategory if it was renamed/deleted
+  if (!PHRASES[activeCategory]) activeCategory = Object.keys(PHRASES)[0];
+
+  // Persist to localStorage
+  try { localStorage.setItem('vm_phrases', JSON.stringify(PHRASES)); } catch(e) {}
+
+  // Rebuild UI
+  buildCategories();
+  buildPhraseGrid(activeCategory);
+  closePhraseEditor();
+  showToast('✅ Phrases saved!');
+}
+
+function addNewCategory() {
+  const name = 'New Category';
+  let finalName = name;
+  let i = 2;
+  while (PHRASES[finalName]) { finalName = name + ' ' + i; i++; }
+  PHRASES[finalName] = [{ icon: '💬', text: 'New phrase' }];
+  renderEditSheet();
+  // Scroll to bottom of edit sheet
+  const body = document.getElementById('editBody');
+  setTimeout(() => body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' }), 50);
+}
+
+function loadCustomPhrases() {
+  try {
+    const saved = localStorage.getItem('vm_phrases');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      Object.keys(PHRASES).forEach(k => delete PHRASES[k]);
+      Object.assign(PHRASES, parsed);
+    }
+  } catch(e) {}
 }
 
 // ---- CATEGORIES ----
